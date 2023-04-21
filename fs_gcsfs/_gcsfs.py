@@ -61,7 +61,6 @@ class GCSFS(FS):
     def __init__(self,
                  bucket_name: str,
                  root_path: str = None,
-                 create: bool = False,
                  client: Client = None,
                  retry: int = 5,
                  strict: bool = True):
@@ -93,15 +92,6 @@ class GCSFS(FS):
 
         self.bucket = self.client.bucket(self._bucket_name)
 
-        # if self._prefix != "":
-        #     if create:
-        #         root_marker = self._get_blob(self._prefix + GCSFS.DELIMITER)
-        #         if root_marker is None:
-        #             blob = self.bucket.blob(self._prefix + GCSFS.DELIMITER)
-        #             blob.upload_from_string(b"")
-        #     elif strict and self._get_blob(self._prefix + GCSFS.DELIMITER) is None:
-        #         raise errors.CreateFailed("Root path \"{}\" does not exist".format(root_path))
-
     def __repr__(self) -> str:
         return _make_repr(
             self.__class__.__name__,
@@ -127,30 +117,21 @@ class GCSFS(FS):
         """Returns blob if exists or None otherwise"""
         return self.bucket.get_blob(key)
 
-    def getinfo(self, path: str, namespaces: Optional[List[str]] = None, check_parent_dir: bool = True) -> Info:
-        if check_parent_dir:
-            self.check()
+    def getinfo(self, path: str, namespaces: Optional[List[str]] = None) -> Info:
         namespaces = namespaces or ()
 
         _path = self.validatepath(path)
-
-        if check_parent_dir:
-            parent_dir = dirname(_path)
-            parent_dir_key = self._path_to_dir_key(parent_dir)
-            if parent_dir != "/" and not self._get_blob(parent_dir_key):
-                raise errors.ResourceNotFound(path)
 
         if _path == "/":
             return self._dir_info("")
 
         key = self._path_to_key(_path)
-        dir_key = self._path_to_dir_key(_path)
 
         blob = self._get_blob(key)
         if blob:
             # Check if there exists a blob at the provided path, return the corresponding object Info
             return self._info_from_blob(blob, namespaces)
-        elif self._prefix_exists(dir_key):
+        elif self._directory_exists(directory_path=_path):
             # Check if there exists a blob with a slash at the end, return the corresponding directory Info
             return self._dir_info(path)
         else:
@@ -267,31 +248,11 @@ class GCSFS(FS):
         """Make a directory.
 
         Note:
-            As GCS is not a real filesystem but a key-value store that does not have any concept of directories, we write empty blobs as a work around.
-            See: https://fs-s3fs.readthedocs.io/en/latest/#limitations
+            As GCS is not a real filesystem but a key-value store that does not have any concept of directories, this is a no-op
 
             This implementation currently ignores the `permissions` argument, the empty blobs are written with default permissions.
         """
         self.check()
-        _path = self.validatepath(path)
-        _key = self._path_to_dir_key(_path)
-
-        if not self.isdir(dirname(_path)):
-            raise errors.ResourceNotFound(path)
-
-        try:
-            self.getinfo(path)
-        except errors.ResourceNotFound:
-            pass
-        else:
-            if recreate:
-                return self.opendir(_path)
-            else:
-                raise errors.DirectoryExists(path)
-
-        blob = self.bucket.blob(_key)
-        blob.upload_from_string(b"")
-
         return SubFS(self, path)
 
     def makedirs(self, path: str, permissions: Optional[Permissions] = None, recreate: bool = False) -> SubFS[FS]:
@@ -458,7 +419,7 @@ class GCSFS(FS):
     def isdir(self, path: str) -> bool:
         _path = self.validatepath(path)
         try:
-            return self.getinfo(_path, check_parent_dir=False).is_dir
+            return self._directory_exists(directory_path=_path)
         except errors.ResourceNotFound:
             return False
 
@@ -480,46 +441,10 @@ class GCSFS(FS):
         """
         return GCSMap(self)
 
-    def _prefix_exists(self, prefix):
+    def _directory_exists(self, directory_path):
         """ Checks if a prefix exists in the bucket, which approximates the existence of a directory """
-        return any(list(self.bucket.list_blobs(prefix=prefix)))
-    #
-    # def fix_storage(self) -> None:  # TODO test
-    #     """Utility function that walks the entire `root_path` and makes sure that all intermediate directories are correctly marked with empty blobs.
-    #
-    #     As GCS is no real file system but only a key-value store, there is also no concept of folders. S3FS and GCSFS overcome this limitation by adding
-    #     empty files with the name "<path>/" every time a directory is created, see https://fs-gcsfs.readthedocs.io/en/latest/#limitations.
-    #     """
-    #     names = [blob.name for blob in self.bucket.list_blobs(prefix=self.root_path)]
-    #     marked_dirs = set()
-    #     all_dirs = set()
-    #
-    #     for name in names:
-    #         # If a blob ends with a slash, it's a directory marker
-    #         if name.endswith("/"):
-    #             marked_dirs.add(dirname(name))
-    #
-    #         name = dirname(name)
-    #         while name != self.root_path:
-    #             all_dirs.add(name)
-    #             name = dirname(name)
-    #
-    #     if forcedir(self.root_path) != "/":
-    #         all_dirs.add(self.root_path)
-    #
-    #     unmarked_dirs = all_dirs.difference(marked_dirs)
-    #     logger.info("{} directories in total".format(len(all_dirs)))
-    #
-    #     if len(unmarked_dirs) > 0:
-    #         logger.info("{} directories are not yet marked correctly".format(len(unmarked_dirs)))
-    #         for unmarked_dir in unmarked_dirs:
-    #             dir_name = forcedir(unmarked_dir)
-    #             logger.debug("Creating directory marker " + dir_name)
-    #             blob = self.bucket.blob(dir_name)
-    #             blob.upload_from_string(b"")
-    #         logger.info("Successfully created {} directory markers".format(len(unmarked_dirs)))
-    #     else:
-    #         logger.info("All directories are correctly marked")
+        prefix_key = self._path_to_dir_key(directory_path)
+        return any(self.bucket.list_blobs(prefix=prefix_key))
 
     # ----- Functions which are implemented in S3FS but not in GCSFS (potential performance improvements) -----
     # def isempty(self, path):
