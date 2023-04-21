@@ -93,14 +93,14 @@ class GCSFS(FS):
 
         self.bucket = self.client.bucket(self._bucket_name)
 
-        if self._prefix != "":
-            if create:
-                root_marker = self._get_blob(self._prefix + GCSFS.DELIMITER)
-                if root_marker is None:
-                    blob = self.bucket.blob(self._prefix + GCSFS.DELIMITER)
-                    blob.upload_from_string(b"")
-            elif strict and self._get_blob(self._prefix + GCSFS.DELIMITER) is None:
-                raise errors.CreateFailed("Root path \"{}\" does not exist".format(root_path))
+        # if self._prefix != "":
+        #     if create:
+        #         root_marker = self._get_blob(self._prefix + GCSFS.DELIMITER)
+        #         if root_marker is None:
+        #             blob = self.bucket.blob(self._prefix + GCSFS.DELIMITER)
+        #             blob.upload_from_string(b"")
+        #     elif strict and self._get_blob(self._prefix + GCSFS.DELIMITER) is None:
+        #         raise errors.CreateFailed("Root path \"{}\" does not exist".format(root_path))
 
     def __repr__(self) -> str:
         return _make_repr(
@@ -150,7 +150,7 @@ class GCSFS(FS):
         if blob:
             # Check if there exists a blob at the provided path, return the corresponding object Info
             return self._info_from_blob(blob, namespaces)
-        elif self._get_blob(dir_key):
+        elif self._prefix_exists(dir_key):
             # Check if there exists a blob with a slash at the end, return the corresponding directory Info
             return self._dir_info(path)
         else:
@@ -480,42 +480,46 @@ class GCSFS(FS):
         """
         return GCSMap(self)
 
-    def fix_storage(self) -> None:  # TODO test
-        """Utility function that walks the entire `root_path` and makes sure that all intermediate directories are correctly marked with empty blobs.
-
-        As GCS is no real file system but only a key-value store, there is also no concept of folders. S3FS and GCSFS overcome this limitation by adding
-        empty files with the name "<path>/" every time a directory is created, see https://fs-gcsfs.readthedocs.io/en/latest/#limitations.
-        """
-        names = [blob.name for blob in self.bucket.list_blobs(prefix=self.root_path)]
-        marked_dirs = set()
-        all_dirs = set()
-
-        for name in names:
-            # If a blob ends with a slash, it's a directory marker
-            if name.endswith("/"):
-                marked_dirs.add(dirname(name))
-
-            name = dirname(name)
-            while name != self.root_path:
-                all_dirs.add(name)
-                name = dirname(name)
-
-        if forcedir(self.root_path) != "/":
-            all_dirs.add(self.root_path)
-
-        unmarked_dirs = all_dirs.difference(marked_dirs)
-        logger.info("{} directories in total".format(len(all_dirs)))
-
-        if len(unmarked_dirs) > 0:
-            logger.info("{} directories are not yet marked correctly".format(len(unmarked_dirs)))
-            for unmarked_dir in unmarked_dirs:
-                dir_name = forcedir(unmarked_dir)
-                logger.debug("Creating directory marker " + dir_name)
-                blob = self.bucket.blob(dir_name)
-                blob.upload_from_string(b"")
-            logger.info("Successfully created {} directory markers".format(len(unmarked_dirs)))
-        else:
-            logger.info("All directories are correctly marked")
+    def _prefix_exists(self, prefix):
+        """ Checks if a prefix exists in the bucket, which approximates the existence of a directory """
+        return any(list(self.bucket.list_blobs(prefix=prefix)))
+    #
+    # def fix_storage(self) -> None:  # TODO test
+    #     """Utility function that walks the entire `root_path` and makes sure that all intermediate directories are correctly marked with empty blobs.
+    #
+    #     As GCS is no real file system but only a key-value store, there is also no concept of folders. S3FS and GCSFS overcome this limitation by adding
+    #     empty files with the name "<path>/" every time a directory is created, see https://fs-gcsfs.readthedocs.io/en/latest/#limitations.
+    #     """
+    #     names = [blob.name for blob in self.bucket.list_blobs(prefix=self.root_path)]
+    #     marked_dirs = set()
+    #     all_dirs = set()
+    #
+    #     for name in names:
+    #         # If a blob ends with a slash, it's a directory marker
+    #         if name.endswith("/"):
+    #             marked_dirs.add(dirname(name))
+    #
+    #         name = dirname(name)
+    #         while name != self.root_path:
+    #             all_dirs.add(name)
+    #             name = dirname(name)
+    #
+    #     if forcedir(self.root_path) != "/":
+    #         all_dirs.add(self.root_path)
+    #
+    #     unmarked_dirs = all_dirs.difference(marked_dirs)
+    #     logger.info("{} directories in total".format(len(all_dirs)))
+    #
+    #     if len(unmarked_dirs) > 0:
+    #         logger.info("{} directories are not yet marked correctly".format(len(unmarked_dirs)))
+    #         for unmarked_dir in unmarked_dirs:
+    #             dir_name = forcedir(unmarked_dir)
+    #             logger.debug("Creating directory marker " + dir_name)
+    #             blob = self.bucket.blob(dir_name)
+    #             blob.upload_from_string(b"")
+    #         logger.info("Successfully created {} directory markers".format(len(unmarked_dirs)))
+    #     else:
+    #         logger.info("All directories are correctly marked")
 
     # ----- Functions which are implemented in S3FS but not in GCSFS (potential performance improvements) -----
     # def isempty(self, path):
