@@ -298,12 +298,6 @@ class GCSFS(FS):
             gcs_file.raw.close()
 
         if _mode.create:
-            dir_path = dirname(_path)
-            if dir_path != "/":
-                _dir_key = self._path_to_dir_key(dir_path)
-                if not self.bucket.get_blob(_dir_key):
-                    raise errors.ResourceNotFound(path)
-
             try:
                 info = self.getinfo(path)
             except errors.ResourceNotFound:
