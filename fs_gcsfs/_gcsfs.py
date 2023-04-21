@@ -347,20 +347,14 @@ class GCSFS(FS):
 
     def removedir(self, path: str) -> None:
         self.check()
-        _path = self.validatepath(path)
-        if _path == "/":
-            raise errors.RemoveRootError()
-        info = self.getinfo(_path)
-        if not info.is_dir:
-            raise errors.DirectoryExpected(path)
-        if not self.isempty(path):
-            raise errors.DirectoryNotEmpty(path)
+        # This could be a no-op since we aren't supporting folders. But this allows us to delete the folder marker
+        # used in other implementations
         _key = self._path_to_dir_key(_path)
 
         try:
             self.bucket.delete_blob(_key)
         except google.cloud.exceptions.NotFound:
-            raise errors.ResourceNotFound(path)
+            pass
 
     def setinfo(self, path, info):
         self.getinfo(path)
