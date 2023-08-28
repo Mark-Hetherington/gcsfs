@@ -51,4 +51,7 @@ if __name__ == "__main__":
             "Programming Language :: Python :: Implementation",
             "Topic :: System :: Filesystems",
         ],
+        package_data = {
+            'fs_gcsfs': ['py.typed'],
+        },
     )

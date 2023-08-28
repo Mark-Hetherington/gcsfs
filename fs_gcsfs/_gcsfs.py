@@ -7,7 +7,7 @@ import os
 import tempfile
 import mimetypes
 import warnings
-from typing import Optional, List, Union, Tuple, Iterator, MutableMapping, Any
+from typing import Optional, List, Union, Tuple, Iterator, MutableMapping, Any, Iterable
 
 import google
 import urllib3
@@ -60,7 +60,7 @@ class GCSFS(FS):
 
     def __init__(self,
                  bucket_name: str,
-                 root_path: str = None,
+                 root_path: Optional[str] = None,
                  client: Client = None,
                  retry: int = 5,
                  strict: bool = True):
@@ -78,15 +78,10 @@ class GCSFS(FS):
             self.client = Client()
 
         if retry:
-            # urllib3: "method_whitelist" was deprecated in favour of "allowed_methods" in version 1.26.0
-            # Ensure compatibility with versions < 1.26.0 while at the same time avoiding the `DeprecationWarning`
-            # for versions >= 1.26.0
-            key = "allowed_methods" if version.parse(urllib3.__version__) >= version.parse("1.26.0") else "method_whitelist"
-            kwargs = {key: False}  # retry on any HTTP method
             max_retries = Retry(total=retry,
                                 status_forcelist=[429, 502, 503, 504],
                                 backoff_factor=0.5,
-                                **kwargs)
+                                allowed_methods=False)
             adapter = HTTPAdapter(max_retries=max_retries)
             self.client._http.mount("https://", adapter)
 
@@ -118,7 +113,7 @@ class GCSFS(FS):
         return self.bucket.get_blob(key)
 
     def getinfo(self, path: str, namespaces: Optional[List[str]] = None) -> Info:
-        namespaces = namespaces or ()
+        namespaces = namespaces or []
 
         _path = self.validatepath(path)
 
@@ -140,6 +135,7 @@ class GCSFS(FS):
     @staticmethod
     def _info_from_blob(blob: Blob, namespaces: Optional[List[str]] = None) -> Info:
         """Make an info dict from a GCS object."""
+        namespaces = namespaces or []
         path = blob.name
         name = basename(path.rstrip("/"))
         info = {
@@ -176,7 +172,7 @@ class GCSFS(FS):
             }
         })
 
-    def _scandir(self, path: str, return_info: bool = False, namespaces: List[str] = None) -> Union[Iterator[str], Iterator[Info]]:
+    def _scandir(self, path: str, return_info: bool = False, namespaces: Optional[List[str]] = None) -> Union[Iterator[str], Iterator[Info]]:
         """Returns all the resources in a directory
 
         Args:
@@ -187,7 +183,7 @@ class GCSFS(FS):
         Returns:
             Either an iterator of Info instances for each resource in the directory or an iterator of string names for each resource in the directory
         """
-        namespaces = namespaces or ()
+        namespaces = namespaces or []
         _path = self.validatepath(path)
 
         if namespaces and not return_info:
